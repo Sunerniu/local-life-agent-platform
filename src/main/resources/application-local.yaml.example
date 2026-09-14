@@ -1,0 +1,19 @@
+# 把本文件复制为同目录下的 application-local.yaml，填上你自己的私密配置。
+#   cp application-local.yaml.example application-local.yaml
+# application-local.yaml 已被 gitignore，不会提交，安全存放邮箱授权码。
+# application.yaml 里默认激活了 local profile，这里的值会覆盖 application.yaml 的同名项。
+
+hmdp:
+  mail:
+    # 发信邮箱
+    username: your-account@qq.com
+    # 16 位 SMTP 授权码（QQ 邮箱：设置 → 账户 → 开启 POP3/SMTP 服务后生成）
+    # 注意不是 QQ 登录密码
+    password: xxxxxxxxxxxxxxxx
+
+# 如果你的中间件不是默认端口/密码，也可以在这里覆盖，例如：
+# spring:
+#   datasource:
+#     password: your-mysql-password
+#   redis:
+#     password: your-redis-password

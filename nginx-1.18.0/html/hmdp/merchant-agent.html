@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="same-origin">
+  <title>商家助手 · 黑马点评</title>
+  <link rel="stylesheet" href="/css/merchant-agent.css">
+</head>
+<body>
+<div id="merchant-app" v-cloak>
+  <aside class="sidebar">
+    <a class="brand" href="/index.html"><span class="brand-mark">点</span><span>黑马点评<small>商家工作台</small></span></a>
+    <div class="nav-label">经营工具</div>
+    <a class="nav-item" href="/index.html"><span>▦</span>店铺首页<span class="nav-arrow">↗</span></a>
+    <a class="nav-item active" href="/merchant-agent.html" aria-current="page"><span>✦</span>商家助手<span class="new-tag">NEW</span></a>
+    <a class="nav-item" href="/ops-agent.html"><span>◉</span>队列诊断</a>
+    <div class="sidebar-note"><span class="note-icon">✓</span><strong>重要修改，由你决定</strong><p>助手提出建议，操作经过你的确认后才会执行。</p></div>
+    <div class="sidebar-bottom"><span class="tiny-dot"></span>Merchant Agent <span class="version">01</span></div>
+  </aside>
+
+  <div class="workspace">
+    <header class="topbar">
+      <div class="breadcrumb"><a href="/index.html">工作台</a><span>/</span><strong>商家助手</strong></div>
+      <div class="account-actions">
+        <span class="account-name" v-if="user">{{user.nickName}}</span>
+        <button class="text-button" v-if="user" @click="logout" :disabled="busy || loggingOut">{{loggingOut ? '退出中…' : '退出登录'}}</button>
+        <button class="small-button" v-else @click="showLogin=true">商家登录</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-heading"><div><p class="eyebrow">YOUR MERCHANT ASSISTANT</p><h1>商家助手 <span>✦</span></h1><p class="subtitle">查资料、看优惠、调整营业时间。说出需求，其他交给助手。</p></div>
+        <span class="connection-pill" :class="{ready: context.configured && user}"><span class="tiny-dot"></span>{{user ? (context.configured ? '模型已配置' : '模型待配置') : '尚未登录'}}</span>
+      </div>
+
+      <div class="notice" role="status" v-if="notice">{{notice}}</div>
+      <div class="setup-banner" v-if="user && !context.configured"><span>ⓘ</span><div><strong>工作台已就绪，等待接入模型</strong><p>{{context.message || '正在检查服务配置…'}}</p></div><button class="text-button" @click="refresh" :disabled="loading">重新检查</button></div>
+      <div class="setup-banner" v-if="user && !loading && !context.shops.length"><span>ⓘ</span><div><strong>这个账号还没有店铺权限</strong><p>请联系管理员绑定店铺。登录成功不代表拥有经营权限。</p></div></div>
+
+      <div class="work-grid">
+        <section class="chat-panel" aria-label="商家助手对话">
+          <div class="chat-toolbar"><div class="assistant-avatar">✦</div><div><strong>经营小助手</strong><small>一次专注处理一家店铺</small></div><button class="text-button clear-button" @click="clearChat" :disabled="busy || !messages.length">清空对话</button></div>
+          <div class="conversation" ref="conversation" role="log" aria-live="polite" aria-relevant="additions">
+            <div class="welcome" v-if="!messages.length">
+              <div class="welcome-symbol">✦<span>✧</span></div>
+              <h2>今天，有什么可以帮你？</h2>
+              <p>从一件小事开始，让店铺经营更轻松。</p>
+              <div class="suggestions">
+                <button @click="suggest('查询当前店铺的资料和营业时间')" :disabled="user && currentShop && !currentShop.canRead"><span class="suggest-icon peach">▤</span><span><strong>查看店铺资料</strong><small>快速了解当前店铺信息</small></span><span class="suggest-arrow">↗</span></button>
+                <button @click="suggest('查询当前店铺的优惠券')" :disabled="user && currentShop && !currentShop.canRead"><span class="suggest-icon lavender">▱</span><span><strong>查询店铺优惠券</strong><small>看看正在提供哪些优惠</small></span><span class="suggest-arrow">↗</span></button>
+                <button @click="suggest('申请将当前店铺营业时间改为09:00-21:00')" :disabled="user && currentShop && !currentShop.canWrite"><span class="suggest-icon mint">◷</span><span><strong>调整营业时间</strong><small>确认后修改，随时可拒绝</small></span><span class="suggest-arrow">↗</span></button>
+              </div>
+              <p class="guest-note" v-if="!user">请先登录商家账号，助手只处理你有权限的店铺。</p>
+            </div>
+            <article v-for="(message,index) in messages" :key="message.id" class="message" :class="message.role">
+              <div class="message-avatar">{{message.role === 'user' ? '我' : '✦'}}</div>
+              <div class="message-content"><div class="message-meta">{{message.role === 'user' ? '你' : '经营小助手'}}<span>{{message.shopName}}</span></div>
+                <div class="message-bubble" :class="{error:message.error}">{{message.text}}</div>
+                <div class="tool-steps" v-if="message.steps && message.steps.length"><span v-for="(step,n) in message.steps" :key="n" :class="{denied:step.status==='DENIED' || step.status==='FAILED'}">{{toolLabel(step.tool)}} · {{stepLabel(step.status)}}</span></div>
+              </div>
+            </article>
+            <div class="message assistant" v-if="busy"><div class="message-avatar">✦</div><div class="working"><span class="dots">•••</span> 正在处理请求，请稍候…<small>修改操作不会自动执行</small></div></div>
+          </div>
+          <div class="composer-area">
+            <div class="scope-tag" v-if="currentShop"><span class="tiny-dot"></span>当前店铺：{{currentShop.name}}</div>
+            <form class="composer" @submit.prevent="send"><label class="sr-only" for="agent-message">向商家助手提问</label><textarea id="agent-message" v-model="draft" maxlength="4000" rows="2" :disabled="busy" :placeholder="user ? '例如：查询店铺优惠券，或申请调整营业时间…' : '登录后，向你的商家助手提问…'" @keydown.enter.exact="enterSend"></textarea><div class="composer-footer"><span>{{draft.length}} / 4000 · Shift + Enter 换行</span><button class="send-button" type="submit" :disabled="busy || (user && (!canSend || !draft.trim()))">{{!user ? '登录后使用' : busy ? '处理中' : '发送'}} <span>↑</span></button></div></form>
+            <p class="composer-note">每条消息独立处理 · 不保存长期记忆 · 重要修改需审批</p>
+          </div>
+        </section>
+
+        <aside class="context-panel">
+          <section class="shop-card"><div class="section-caption">当前经营店铺 <span>01</span></div>
+            <template v-if="user && context.shops.length"><label class="sr-only" for="shop-select">选择授权店铺</label><select id="shop-select" v-model="selectedShopId" :disabled="busy"><option v-for="shop in context.shops" :key="shop.id" :value="shop.id">{{shop.name}}</option></select><p class="shop-hours"><span>营业时间</span><strong>{{currentShop ? currentShop.openHours || '未设置' : '—'}}</strong></p><div class="permission-tags" v-if="currentShop"><span v-if="currentShop.canRead">可查询</span><span v-if="currentShop.canWrite">可申请修改</span></div><a v-if="currentShop" :href="'/shop-detail.html?id=' + currentShop.id" class="shop-link">查看店铺详情 ↗</a></template>
+            <div class="shop-empty" v-else><span>⌂</span><strong>{{user ? '暂无授权店铺' : '登录后选择店铺'}}</strong><p>仅展示你有权限管理的店铺</p></div>
+          </section>
+
+          <section class="approvals-panel"><div class="approvals-heading"><h2>操作审批 <span class="count">{{pendingCount}}</span></h2><button class="text-button" @click="refresh" :disabled="loading || !user" aria-label="刷新审批">{{loading ? '刷新中' : '刷新'}}</button></div><p class="section-description">每一项修改，都等你确认。</p>
+            <div class="approval-empty" v-if="!visibleApprovals.length"><div>✓</div><strong>暂时没有待确认操作</strong><p>助手提出修改申请后，<br>你可以在这里核对并审批。</p></div>
+            <article class="approval-card" v-for="approval in visibleApprovals" :key="approval.id">
+              <div class="approval-top"><strong>修改营业时间</strong><span class="approval-state" :class="effectiveStatus(approval).toLowerCase()">{{approvalLabel(effectiveStatus(approval))}}</span></div>
+              <p class="approval-shop">{{approval.shopName || '店铺 ' + approval.shopId}}</p>
+              <div class="change-preview"><div><span>修改前</span><strong>{{approval.beforeOpenHours || '未设置'}}</strong></div><span class="change-arrow">→</span><div><span>修改后</span><strong>{{approval.openHours}}</strong></div></div>
+              <p class="approval-expiry" v-if="effectiveStatus(approval)==='PENDING'">{{remaining(approval)}} 后过期 · 尚未执行</p>
+              <p class="approval-result" v-if="approval.status==='EXECUTED'">已执行成功，店铺资料已更新。</p>
+              <p class="approval-result" v-if="approval.status==='FAILED'">{{resultMessage(approval)}}</p>
+              <p class="approval-result" v-if="effectiveStatus(approval)==='EXPIRED'">申请已过期，请重新发起。</p>
+              <p class="approval-result" v-if="approval.status==='UNAVAILABLE'">审批已失效，或当前账号已无权处理。</p>
+              <div class="approval-buttons" v-if="effectiveStatus(approval)==='PENDING'"><button class="secondary-button" @click="decide(approval,false)" :disabled="decisionBusy !== null">拒绝</button><button class="primary-button" @click="decide(approval,true)" :disabled="decisionBusy !== null">{{decisionBusy===approval.id ? '处理中…' : '确认修改'}}</button></div>
+              <small class="approval-id">{{approval.id.slice(0,8)}}</small>
+            </article>
+          </section>
+          <div class="boundary-note"><strong>你的权限，就是助手的边界</strong><p>查询复用业务服务，修改经过审批。助手无法自行授权或确认。</p></div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" v-if="showLogin" @click.self="closeLogin" @keydown.esc="closeLogin">
+    <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="login-title"><button class="dialog-close" @click="closeLogin" :disabled="loggingIn" aria-label="关闭登录">×</button><div class="login-logo">✦</div><p class="eyebrow">MERCHANT ACCESS</p><h2 id="login-title">登录你的商家工作台</h2><p>使用账号密码登录，无需邮箱验证码。</p><form @submit.prevent="login"><label for="merchant-account">商家账号</label><input id="merchant-account" ref="accountInput" v-model="credentials.account" autocomplete="username" maxlength="128" required placeholder="请输入商家账号"><label for="merchant-password">密码</label><input id="merchant-password" v-model="credentials.password" autocomplete="current-password" type="password" maxlength="128" required placeholder="请输入密码"><p class="login-error" role="alert" v-if="loginError">{{loginError}}</p><button class="primary-button" type="submit" :disabled="loggingIn">{{loggingIn ? '正在验证…' : '登录工作台 →'}}</button></form><p class="login-footnote">账号由管理员开通。登录后仅可管理已授权店铺。</p></section>
+  </div>
+</div>
+<script src="/js/vue.js"></script>
+<script src="/js/merchant-agent.js"></script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+server:
+  port: 8081
+spring:
+  application:
+    name: hmdp
+  profiles:
+    # 私密配置（邮箱授权码等）放在 application-local.yaml，该文件已 gitignore。
+    # 文件不存在也不影响启动。
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  datasource:
+    # MySQL 8 驱动类，配合 pom.xml 里的 mysql-connector-java 8.x
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # allowPublicKeyRetrieval=true：MySQL 8 默认 caching_sha2_password 认证，
+    # 非 SSL 连接下不加这个参数会报 "Public Key Retrieval is not allowed"
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:hmdp}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&allowMultiQueries=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:123456}
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DATABASE:6}
+    lettuce:
+      pool:
+        max-active: 10
+        max-idle: 10
+        min-idle: 1
+        time-between-eviction-runs: 10s
+
+  jackson:
+    default-property-inclusion: non_null # JSON处理时忽略非空字段
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    # 5672 是 AMQP 协议端口。15672 是管理后台的 HTTP 端口，连那个会握手失败
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:hmdp}
+    password: ${RABBITMQ_PASSWORD:123456}
+    virtual-host: /
+    listener:
+      simple:
+        concurrency: 10
+        max-concurrency: 10
+        prefetch: 1
+        auto-startup: true
+        default-requeue-rejected: true
+    template:
+      retry:
+        enabled: true
+        initial-interval: 1000ms
+        max-attempts: 3
+        max-interval: 10000ms
+        multiplier: 1
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+# 项目自定义配置
+hmdp:
+  ops:
+    enabled: ${OPS_ENABLED:false}
+    environment: ${OPS_ENVIRONMENT:local}
+    diagnosticians: ${OPS_DIAGNOSTICIANS:}
+    operators: ${OPS_OPERATORS:}
+  shop-cache:
+    maximum-size: ${SHOP_CACHE_MAXIMUM_SIZE:10000}
+    ttl: ${SHOP_CACHE_TTL:30s}
+    # Redis Pub/Sub 不隔离 database，频道需按环境和数据库隔离。
+    channel: ${SHOP_CACHE_CHANNEL:hmdp:shop:invalidate:${spring.redis.database}}
+  agent:
+    enabled: ${OPENAI_AGENT_ENABLED:false}
+    model: ${OPENAI_MODEL:}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    max-rounds: 4
+    max-tool-calls: 8
+    approval-ttl-seconds: 600
+    max-approvals: 500
+    grants: {}
+  upload:
+    # 探店图片落盘目录，需与 nginx 静态资源目录一致，否则前端拿不到图
+    # 默认取运行目录下的 nginx-1.18.0/html/hmdp/imgs（IDEA 里工作目录即项目根目录）
+    dir: ${HMDP_UPLOAD_DIR:${user.dir}/nginx-1.18.0/html/hmdp/imgs}
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:587}
+    # 填自己的邮箱和 16 位 SMTP 授权码，建议写在 application-local.yaml 里
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+
+mybatis-plus:
+  type-aliases-package: com.hmdp.entity # 别名扫描包
+logging:
+  level:
+    com.hmdp: debug

@@ -1,0 +1,101 @@
+# 黑马点评（hm-dianping）本地依赖环境
+#
+# 用法：
+#   1. cp .env.example .env   然后按需修改
+#   2. docker compose up -d
+#   3. 首次启动 MySQL 会自动执行 src/main/resources/db/hmdp.sql 建表灌数据
+#
+# 注意：初始化脚本只在数据卷为空时执行一次。改了 SQL 想重来，需要先删卷：
+#   docker compose down -v && docker compose up -d
+
+name: shop-agent
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: hmdp-mysql
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-hmdp}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      # hmdp.sql 是 MySQL 5.6 时代导出的，tb_seckill_voucher 的 begin_time / end_time
+      # 用了 DEFAULT '0000-00-00 00:00:00'。MySQL 8 默认 sql_mode 含 NO_ZERO_DATE，
+      # 不放宽这里建表会直接失败（Invalid default value for 'begin_time'）。
+      - --sql-mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+      - --default-time-zone=+08:00
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 只读挂载到 initdb 目录，容器首次启动时自动导入
+      - ./src/main/resources/db/hmdp.sql:/docker-entrypoint-initdb.d/01-hmdp.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  redis:
+    # 项目「附近商家」用了 GEOSEARCH，该命令 Redis 6.2 才引入，不能降版本
+    image: redis:7.2-alpine
+    container_name: hmdp-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    # README 指定 3.9；-management 带 Web 管理后台
+    image: rabbitmq:3.9-management
+    container_name: hmdp-rabbitmq
+    restart: unless-stopped
+    ports:
+      # 5672 = AMQP 协议端口，程序连这个
+      - "${RABBITMQ_PORT:-5672}:5672"
+      # 15672 = 管理后台，浏览器打开 http://localhost:15672
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-hmdp}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-123456}
+      RABBITMQ_DEFAULT_VHOST: "/"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 40s
+
+  # 前端 nginx。默认不启动（仓库里 html/hmdp 前端静态文件还没有）。
+  # 补齐前端文件后用 docker compose --profile web up -d 启动。
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: hmdp-nginx
+    restart: unless-stopped
+    profiles: ["web"]
+    ports:
+      - "${NGINX_PORT:-8080}:8080"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-1.18.0/html:/usr/share/nginx/html:ro
+    extra_hosts:
+      # 让容器内能通过 host.docker.internal 访问跑在宿主机上的 Spring Boot
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:

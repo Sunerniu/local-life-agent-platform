@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>队列诊断 · 黑马点评</title><link rel="stylesheet" href="/css/ops-agent.css"></head>
+<body><main id="ops-app" v-cloak>
+  <header><a href="/">← 黑马点评</a><a href="/merchant-agent.html">商家登录 / 商家助手</a><span>运维工作台 · {{ context.environment || '未授权' }}</span></header>
+  <section class="intro"><small>RABBITMQ OPERATIONS</small><h1>先找到证据，再采取行动。</h1><p>只读诊断自动执行 · 消息重放逐次审批 · 每次最多 5 条</p></section>
+  <p class="notice" role="alert" v-if="notice">{{notice}}</p>
+  <div class="grid">
+    <section class="panel"><h2>L1 · 队列诊断</h2><p>固定检查秒杀主队列、DLQ、数据库连接和近 15 分钟脱敏消费事件。</p>
+      <button @click="diagnose" :disabled="busy || !authorized">{{busy ? '处理中…' : '采集证据并诊断'}}</button>
+      <details v-if="context.incidents && context.incidents.length"><summary>历史诊断（已持久化）</summary><button class="secondary" v-for="item in context.incidents" :key="item.id" @click="loadReport(item.id)" :disabled="busy">{{item.created_at}}</button></details>
+      <form @submit.prevent="chat"><label for="question">或用自然语言提出需求</label><textarea id="question" v-model="question" maxlength="2000" placeholder="检查秒杀队列为什么积压"></textarea><button :disabled="busy || !authorized || !question.trim()">发送给助手</button></form>
+      <p v-if="answer" class="answer">{{answer}}</p>
+      <template v-if="report"><h3>诊断事件</h3><code>{{report.incidentId}}</code>
+        <div class="metrics"><div><small>主队列待消费</small><strong>{{report.evidence.E1_queue.available ? report.evidence.E1_queue.ready : '不可用'}}</strong></div><div><small>消费者</small><strong>{{report.evidence.E1_queue.available ? report.evidence.E1_queue.consumers : '未知'}}</strong></div><div><small>DLQ 消息</small><strong>{{report.evidence.E2_dlq.available ? report.evidence.E2_dlq.ready : '未知'}}</strong></div></div>
+        <h3>根因假设（不是确定结论）</h3><ul><li v-for="h in report.evidence.hypotheses">{{h}}</li></ul>
+        <h3>缺失证据</h3><ul><li v-for="m in report.evidence.missing">{{m}}</li></ul>
+        <details><summary>查看原始结构化证据与处置建议</summary><pre>{{pretty(report.evidence)}}</pre></details>
+      </template>
+    </section>
+    <section class="panel"><h2>L2 · 人工审批</h2><p>来源 <code>seckillQueue.dlq</code><br>目标 <code>seckillQueue</code></p>
+      <p class="warning">重放可能创建订单并扣减库存，不能自动撤销。申请只固定数量和队列，不预览消息；执行时取队首最多指定条数。</p>
+      <label for="batch">重放上限（每秒 1 条）</label><input id="batch" type="number" min="1" max="5" v-model.number="count">
+      <button @click="propose" :disabled="busy || !context.canOperate || !report">生成待审批申请</button>
+      <button class="secondary" @click="refresh" :disabled="busy">刷新审批与权限</button>
+      <article v-for="action in context.actions" :key="action.id" class="approval">
+        <h3>{{action.status}} · 最多 {{action.batch_size}} 条</h3><code>{{action.id}}</code><p>有效期至 {{action.expires_at}}</p>
+        <button class="secondary" @click="loadReport(action.incident_id)" :disabled="busy">查看关联诊断证据</button>
+        <template v-if="action.status==='PENDING' && context.canOperate"><label class="check"><input type="checkbox" v-model="confirmed[action.id]">我已核实故障修复，并接受本次重放影响</label>
+          <button @click="decide(action,true)" :disabled="busy || !confirmed[action.id]">确认并执行</button><button class="secondary" @click="decide(action,false)" :disabled="busy">拒绝</button></template>
+        <p v-if="action.status==='UNCERTAIN' || action.status==='EXECUTING'">若执行进程已中断，请管理员核对。不会自动恢复或重复执行。</p>
+        <pre v-if="action.result">{{action.result}}</pre><button class="secondary" @click="verify(action)" :disabled="busy">验证业务消费结果</button>
+        <details v-if="action.verification"><summary>最近验证结果</summary><pre>{{action.verification}}</pre></details>
+      </article><p v-if="!context.actions.length">暂无审批记录。商家身份不会自动获得运维权限。</p>
+    </section>
+  </div>
+</main><script src="/js/vue.js"></script><script src="/js/ops-agent.js"></script></body></html>
